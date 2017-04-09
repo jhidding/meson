@@ -318,6 +318,71 @@ class PkgConfigDependency(Dependency):
         # a path rather than the raw dlname
         return os.path.basename(dlname)
 
+class Hdf5Dependency(Dependency):
+    def _get_hdf5_version(self):
+        '''Get the HDF5 library version, by parsing the output of
+        `h5cc -showconfig`.'''
+        p, stdout = Popen_safe(['h5cc', '-showconfig'])
+        if p.returncode != 0:
+            mlog.log('Could get HDF5 config:', mlog.red('NO'))
+            return
+
+        self.version = re.findall('Version: (.*)$', stdout)
+        mlog.log(' HDF5 Version:', self.version)
+
+    def _get_compiler_args(self, language):
+        '''Get the correct arguments for the needed compiler.
+
+        :param language: should be one of 'c', 'c++', 'fortran'.
+        :type language: str
+
+        :return: tuple of compiler arguments and linker arguments.
+        :rtype: ([str],[str])
+        '''
+        mlog.log('Detecting HDF5 library')
+
+        program_name = {
+            'c': 'h5cc',
+            'cpp': 'h5c++',
+            'fortran': 'h5fc' }[language]
+
+        program_path = program_name
+        p, stdout = Popen_safe([program_path, '-show', ';'])[0:2]
+        if p.returncode != 0:
+            mlog.log('Dependency HDF5 found:', mlog.red('NO'))
+            return
+
+        self.is_found = True
+        mlog.log(' ', program_name, ':', mlog.green('YES'), program_path)
+
+        cflags_str, libs_str = stdout.split(';')
+        self.cflags = [arg.strip() for arg in cflags_str.split()[1:]]
+        self.libs = [arg.strip() for arg in libs_str.split()]
+
+    def __init__(self, environment, kwargs):
+        Dependency.__init__(self, 'hdf5')
+        self.is_found = False
+        self.version = 'none'
+
+        language = kwargs['language']
+        self._get_compiler_args(language)
+
+        if self.is_found:
+            self._get_hdf5_version()
+
+    def get_modversion(self):
+        return self.version
+
+    def get_version(self):
+        return self.version
+
+    def get_compile_args(self):
+        return self.cflags
+
+    def get_link_args(self):
+        return self.libs
+
+
 class WxDependency(Dependency):
     wx_found = None
 
@@ -1553,6 +1618,7 @@ def find_external_dependency(name, environment, kwargs):
 packages = {'boost': BoostDependency,
             'gtest': GTestDependency,
             'gmock': GMockDependency,
+            'hdf5': Hdf5Dependency,
             'qt5': Qt5Dependency,
             'qt4': Qt4Dependency,
             'gnustep': GnuStepDependency,
